@@ -8,6 +8,6 @@
   "env": ".env",
   "image_distro": "wolfi",
   "dockerfile_lines": [
-    "RUN curl -Ls https://astral.sh/uv/install.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv && mv /root/.local/bin/uvx /usr/local/bin/uvx"
-  ]
+    "RUN pip install uv && ln -s $(which uv) /usr/local/bin/uv && ln -s $(which uvx) /usr/local/bin/uvx"
+]
 }
