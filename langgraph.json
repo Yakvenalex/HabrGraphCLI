@@ -8,6 +8,6 @@
   "env": ".env",
   "image_distro": "wolfi",
   "dockerfile_lines": [
-    "RUN pip install uv && ln -s $(which uv) /usr/local/bin/uv && ln -s $(which uvx) /usr/local/bin/uvx"
+    "RUN pip install uv && find / -name 'uvx' 2>/dev/null | head -5"
 ]
 }
