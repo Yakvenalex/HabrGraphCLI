@@ -8,6 +8,6 @@
   "env": ".env",
   "image_distro": "wolfi",
   "dockerfile_lines": [
-    "RUN pip install uv && find / -name 'uvx' 2>/dev/null | head -5"
+    "RUN apk add --no-cache curl && curl -Ls https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh"
 ]
 }
