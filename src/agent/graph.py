@@ -29,10 +29,11 @@ ALL_TOOLS = TOOLS + _mcp_tools
 
 llm = ChatOpenAI(
     base_url=os.getenv("LLM_BASE_URL"),
-    api_key=os.getenv("LLM_KEY", "not-needed"),
-    model=os.getenv("LLM_NAME", "local-model"),
-    temperature=0.7,
-    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+    api_key=os.getenv("LLM_API_KEY", "not-needed"),
+    model=os.getenv("MODEL", "local-model"),
+    # Claude-прокси держит thinking включённым и требует temperature=1.
+    # (Раньше под локальную qwen тут было 0.7 + enable_thinking=False.)
+    temperature=1.0,
 ).bind_tools(ALL_TOOLS)
 
 

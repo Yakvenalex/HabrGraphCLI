@@ -38,8 +38,8 @@ DATA_TOOLS = [
 
 _llm_kwargs = dict(
     base_url=os.getenv("LLM_BASE_URL"),
-    api_key=os.getenv("LLM_KEY", "not-needed"),
-    model=os.getenv("LLM_NAME", "local-model"),
+    api_key=os.getenv("LLM_API_KEY", "not-needed"),
+    model=os.getenv("MODEL", "local-model"),
     extra_body={"chat_template_kwargs": {"enable_thinking": False}},
 )
 
