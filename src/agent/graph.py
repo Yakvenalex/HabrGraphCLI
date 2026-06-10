@@ -7,6 +7,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Dict, List
 
+from dotenv import load_dotenv
 from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph
@@ -14,7 +15,6 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.runtime import Runtime
 from typing_extensions import TypedDict
-from dotenv import load_dotenv
 
 from agent.mcp import load_mcp_tools
 from agent.tools import TOOLS
