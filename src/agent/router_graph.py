@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Dict, List, Literal
+from typing import Annotated, Any, Dict, List
 
 from dotenv import load_dotenv
 from langchain_core.messages import BaseMessage, SystemMessage
@@ -17,7 +17,15 @@ from langgraph.runtime import Runtime
 from typing_extensions import TypedDict
 
 from agent.mcp import load_mcp_tools
-from agent.tools import get_crypto_price, get_iss_location, get_weather, search_wikipedia
+from agent.tools import (
+    calculate,
+    convert_currency,
+    get_crypto_price,
+    get_hacker_news_top,
+    get_iss_location,
+    get_weather,
+    search_wikipedia,
+)
 
 load_dotenv()
 
@@ -25,40 +33,47 @@ load_dotenv()
 _mcp_tools = asyncio.run(load_mcp_tools())
 _mcp = {t.name: t for t in _mcp_tools}
 
-# Специализация №1 — веб-исследователь: чтение интернета и энциклопедии.
-WEB_TOOLS = [_mcp["fetch"], search_wikipedia, get_iss_location]
+# Специализация №1 — веб-исследователь: чтение интернета, энциклопедии и новостей.
+WEB_TOOLS = [_mcp["fetch"], search_wikipedia, get_iss_location, get_hacker_news_top]
 
-# Специализация №2 — риалтайм-данные: погода, крипта, время/таймзоны.
+# Специализация №2 — риалтайм-данные: погода, крипта, валюты, время, расчёты.
 DATA_TOOLS = [
     get_weather,
     get_crypto_price,
+    convert_currency,
+    calculate,
     _mcp["get_current_time"],
     _mcp["convert_time"],
 ]
 
+# Прокси гоняет Claude с принудительно включённым thinking, а в этом режиме
+# допустима только temperature=1. Поэтому фиксируем 1.0 на всех LLM и не шлём
+# qwen-специфичный extra_body (он тут всё равно игнорируется).
 _llm_kwargs = dict(
     base_url=os.getenv("LLM_BASE_URL"),
     api_key=os.getenv("LLM_API_KEY", "not-needed"),
     model=os.getenv("MODEL", "local-model"),
-    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+    temperature=1.0,
 )
 
-_chat_llm = ChatOpenAI(temperature=0.7, **_llm_kwargs)
-_web_llm = ChatOpenAI(temperature=0.3, **_llm_kwargs).bind_tools(WEB_TOOLS)
-_data_llm = ChatOpenAI(temperature=0.3, **_llm_kwargs).bind_tools(DATA_TOOLS)
+_chat_llm = ChatOpenAI(**_llm_kwargs)
+_web_llm = ChatOpenAI(**_llm_kwargs).bind_tools(WEB_TOOLS)
+_data_llm = ChatOpenAI(**_llm_kwargs).bind_tools(DATA_TOOLS)
 
 
-# Роутер — отдельный LLM с низкой температурой. Без bind_tools/structured_output:
-# qwen-шаблон ломается на function calling без явного user-запроса в нужной форме,
-# поэтому просим модель вернуть одно слово текстом и парсим вручную.
-_router_llm = ChatOpenAI(temperature=0.0, **_llm_kwargs)
+# Роутер не биндит тулзы и не использует structured_output: просим модель вернуть
+# одно слово текстом и парсим вручную — так роутинг не зависит от поддержки
+# function calling и стабильно работает даже при temperature=1 (промпт строгий).
+_router_llm = ChatOpenAI(**_llm_kwargs)
 
 _ROUTER_SYSTEM = (
     "Ты — роутер. Посмотри на последнее сообщение пользователя и выбери один маршрут "
     "из трёх. Ответь СТРОГО одним словом без кавычек и пояснений:\n"
     "- chat — обычная беседа, шутка, мнение, без внешних данных.\n"
-    "- web — нужен поиск или чтение в интернете: произвольные URL, Википедия, факты о МКС.\n"
-    "- data — нужны актуальные данные: погода, курсы криптовалют, текущее время, таймзоны."
+    "- web — нужен поиск или чтение в интернете: произвольные URL, Википедия, "
+    "факты о МКС, новости Hacker News.\n"
+    "- data — нужны актуальные данные или расчёт: погода, курсы криптовалют, "
+    "конвертация валют, арифметика, текущее время, таймзоны."
 )
 
 _VALID_ROUTES = {"chat", "web", "data"}
@@ -92,17 +107,19 @@ def pick_route(state: State) -> str:
 
 
 async def chat_node(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
+    """Ветка обычной беседы — отвечает без инструментов."""
     system = SystemMessage(content="Ты дружелюбный ассистент. Отвечай кратко и по делу.")
     resp = await _chat_llm.ainvoke([system] + state.messages)
     return {"messages": [resp]}
 
 
 async def web_agent(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
+    """Ветка веб-исследователя — работает с чтением интернета и новостями."""
     system = SystemMessage(
         content=(
             "Ты веб-исследователь. У тебя есть инструменты: fetch (скачать URL), "
-            "search_wikipedia, get_iss_location. Используй их, чтобы собрать факты, "
-            "потом дай итоговый ответ."
+            "search_wikipedia, get_iss_location, get_hacker_news_top (топ новостей "
+            "Hacker News). Используй их, чтобы собрать факты, потом дай итоговый ответ."
         )
     )
     resp = await _web_llm.ainvoke([system] + state.messages)
@@ -110,10 +127,12 @@ async def web_agent(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
 
 
 async def data_agent(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
+    """Ветка реалтайм-данных — погода, валюты, расчёты, время."""
     system = SystemMessage(
         content=(
             "Ты специалист по актуальным данным. У тебя есть инструменты для погоды, "
-            "цен криптовалют, текущего времени и конвертации таймзон. Используй их, "
+            "цен криптовалют, конвертации валют, точных вычислений (calculate), "
+            "текущего времени и конвертации таймзон. Используй их, "
             "а потом коротко ответь пользователю."
         )
     )
