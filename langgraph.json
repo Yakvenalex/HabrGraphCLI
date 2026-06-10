@@ -6,6 +6,10 @@
     "router_agent": "./src/agent/router_graph.py:graph",
     "chef_agent": "./src/agent/chef_graph.py:graph"
   },
+  "auth": {
+    "path": "./src/auth.py:auth",
+    "disable_studio_auth": true
+  },
   "env": ".env",
   "image_distro": "wolfi",
   "dockerfile_lines": [
